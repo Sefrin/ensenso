@@ -102,12 +102,29 @@ class EnsensoDriver
       if (!nh_private_.hasParam("stream_calib_pattern"))
         ROS_WARN_STREAM("Parameter [~stream_calib_pattern] not found, using default: " << (stream_calib_pattern_ ? "TRUE":"FALSE"));
       // Advertise topics
-      l_raw_pub_ = it_.advertiseCamera("left/image_raw", 1);
-      r_raw_pub_ = it_.advertiseCamera("right/image_raw", 1);
-      depth_pub_ = it_.advertiseCamera("depth/image_rect", 1);
-      l_rectified_pub_ = it_.advertise("left/image_rect", 1);
-      r_rectified_pub_ = it_.advertise("right/image_rect", 1);
-      cloud_pub_ = nh_.advertise<sensor_msgs::PointCloud2 >("depth/points", 1, false);
+      image_transport::SubscriberStatusCallback image_left_raw_connect_cb = boost::bind(&EnsensoDriver::imagesSubscribeCallback, this, _1);
+      image_transport::SubscriberStatusCallback image_left_raw_disconnect_cb = boost::bind(&EnsensoDriver::imagesUnsubscribeCallback, this, _1);
+      image_transport::SubscriberStatusCallback image_right_raw_connect_cb = boost::bind(&EnsensoDriver::depthImageSubscribeCallback, this, _1);
+      image_transport::SubscriberStatusCallback image_right_raw_disconnect_cb = boost::bind(&EnsensoDriver::depthImageUnsubscribeCallback, this, _1);
+      image_transport::SubscriberStatusCallback depth_image_connect_cb = boost::bind(&EnsensoDriver::depthImageSubscribeCallback, this, _1);
+      image_transport::SubscriberStatusCallback depth_image_disconnect_cb = boost::bind(&EnsensoDriver::depthImageSubscribeCallback, this, _1);
+      image_transport::SubscriberStatusCallback image_rgb_raw_connect_cb = boost::bind(&EnsensoDriver::depthImageUnsubscribeCallback, this, _1);
+      image_transport::SubscriberStatusCallback image_rgb_raw_disconnect_cb = boost::bind(&EnsensoDriver::depthImageUnsubscribeCallback, this, _1);
+      image_transport::SubscriberStatusCallback image_left_rect_connect_cb = boost::bind(&EnsensoDriver::depthImageUnsubscribeCallback, this, _1);
+      image_transport::SubscriberStatusCallback image_left_rect_disconnect_cb = boost::bind(&EnsensoDriver::depthImageUnsubscribeCallback, this, _1);
+      image_transport::SubscriberStatusCallback image_right_rect_connect_cb = boost::bind(&EnsensoDriver::depthImageUnsubscribeCallback, this, _1);
+      image_transport::SubscriberStatusCallback image_right_rect_disconnect_cb = boost::bind(&EnsensoDriver::depthImageUnsubscribeCallback, this, _1);
+      //cloud callback
+      ros::SubscriberStatusCallback cloud_connect_cb = boost::bind(&EnsensoDriver::cloudSubscribeCallback, this, _1);
+      ros::SubscriberStatusCallback cloud_disconnect_cb = boost::bind(&EnsensoDriver::cloudUnsubscribeCallback, this, _1);
+
+      l_raw_pub_ = it_.advertiseCamera("left/image_raw", 1, image_left_raw_connect_cb, image_left_raw_disconnect_cb);
+      r_raw_pub_ = it_.advertiseCamera("right/image_raw", 1, image_right_raw_connect_cb, image_right_raw_disconnect_cb);
+      r_rectified_pub_ = it_.advertise("left/image_rect", 1, image_left_rect_connect_cb, image_left_rect_disconnect_cb);
+      r_rectified_pub_ = it_.advertise("right/image_rect", 1, image_right_rect_connect_cb, image_right_rect_disconnect_cb);
+
+      depth_pub_ = it_.advertiseCamera("depth/image_rect", 1, depth_image_connect_cb, depth_image_disconnect_cb);
+      cloud_pub_ = nh_.advertise<sensor_msgs::PointCloud2 >("depth/points", 1, cloud_connect_cb, cloud_disconnect_cb);
 
       pattern_raw_pub_ = nh_.advertise<ensenso::RawStereoPattern> ("pattern/stereo", 1, false);
       pattern_pose_pub_ = nh_.advertise<geometry_msgs::PoseStamped> ("pattern/pose", 1, false);
@@ -266,8 +283,8 @@ class EnsensoDriver
       ROS_DEBUG_STREAM("NearPlane: "   << std::boolalpha << config.NearPlane);
       ROS_DEBUG_STREAM("FarPlane: "   << std::boolalpha << config.FarPlane);
       ROS_DEBUG("Stream Parameters");
-      ROS_DEBUG_STREAM("Cloud: "   << std::boolalpha << config.Cloud);
-      ROS_DEBUG_STREAM("Images: "   << std::boolalpha << config.Images);
+      // ROS_DEBUG_STREAM("Cloud: "   << std::boolalpha << config.Cloud);
+      // ROS_DEBUG_STREAM("Images: "   << std::boolalpha << config.Images);
       ROS_DEBUG_STREAM("Use RGB: "   << std::boolalpha << config.RGB);
       ROS_DEBUG("CUDA Parameters");
       #ifdef CUDA_IMPLEMENTED
@@ -280,8 +297,12 @@ class EnsensoDriver
       {
         if (!is_streaming_rgb_ && config.RGB)
         {
-          rgb_raw_pub_ = it_.advertiseCamera("rgb/image_raw", 1);
-          rgb_rectified_pub_ = it_.advertise("rgb/image_rect_color", 1);
+          image_transport::SubscriberStatusCallback image_rgb_raw_connect_cb = boost::bind(&EnsensoDriver::imagesSubscribeCallback, this, _1);
+          image_transport::SubscriberStatusCallback image_rgb_raw_disconnect_cb = boost::bind(&EnsensoDriver::imagesUnsubscribeCallback, this, _1);
+          image_transport::SubscriberStatusCallback image_rgb_rect_connect_cb = boost::bind(&EnsensoDriver::imagesSubscribeCallback, this, _1);
+          image_transport::SubscriberStatusCallback image_rgb_rect_disconnect_cb = boost::bind(&EnsensoDriver::imagesUnsubscribeCallback, this, _1);
+          rgb_raw_pub_ = it_.advertiseCamera("rgb/image_raw", 1, image_rgb_raw_connect_cb, image_rgb_raw_disconnect_cb);
+          rgb_rectified_pub_ = it_.advertise("rgb/image_rect_color", 1, image_rgb_rect_connect_cb, image_rgb_rect_disconnect_cb);
         }
         else
         {
@@ -342,7 +363,6 @@ class EnsensoDriver
         ensenso_ptr_->setEnableCUDA(config.EnableCUDA);
       #endif
       // Streaming parameters - only request rgb when available
-      configureStreaming(config.Cloud, config.Images, (rgb_available_ && config.RGB), config.TriggerMode);
     }
 
     bool collectPatternCB(ensenso::CollectPattern::Request& req, ensenso::CollectPattern::Response &res)
@@ -388,6 +408,14 @@ class EnsensoDriver
 
     bool configureStreaming(const bool cloud, const bool images, const bool rgb, const int trigger_mode)
     {
+      if (!cloud && !images)
+      {
+        ensenso_ptr_->stop();
+      }
+      else if (!is_streaming_cloud_ && !is_streaming_images_)
+      {
+        ensenso_ptr_->start();
+      }
       bool was_running = ensenso_ptr_->isRunning();
       if ((is_streaming_cloud_ != cloud) || (is_streaming_images_ != images) || (is_streaming_rgb_ != rgb))
       {
@@ -755,6 +783,70 @@ class EnsensoDriver
       }
       cv::Mat image_mat(pcl_image.height, pcl_image.width, type, image_array);
       return cv_bridge::CvImage(header, encoding, image_mat).toImageMsg();
+    }
+    void imageLeftRawSubscribeCallback (const image_transport::SingleSubscriberPublisher& pub)
+    {
+
+    }
+    void imageLeftRawUnsubscribeCallback (const image_transport::SingleSubscriberPublisher& pub)
+    {
+
+    }
+    void imageRightRawSubscribeCallback (const image_transport::SingleSubscriberPublisher& pub)
+    {
+
+    }
+    void imageRightRawUnsubscribeCallback (const image_transport::SingleSubscriberPublisher& pub)
+    {
+
+    }
+    void imageLeftRectSubscribeCallback (const image_transport::SingleSubscriberPublisher& pub)
+    {
+
+    }
+    void imageLeftRectUnsubscribeCallback (const image_transport::SingleSubscriberPublisher& pub)
+    {
+
+    }
+    void imageRightRectSubscribeCallback (const image_transport::SingleSubscriberPublisher& pub)
+    {
+
+    }
+    void imageRightRectUnsubscribeCallback (const image_transport::SingleSubscriberPublisher& pub)
+    {
+
+    }
+    void imageRGBRawSubscribeCallback (const image_transport::SingleSubscriberPublisher& pub)
+    {
+
+    }
+    void imageRGBRawUnsubscribeCallback (const image_transport::SingleSubscriberPublisher& pub)
+    {
+
+    }
+    void imageRGBRectSubscribeCallback (const image_transport::SingleSubscriberPublisher& pub)
+    {
+
+    }
+    void imageRGBRectUnsubscribeCallback (const image_transport::SingleSubscriberPublisher& pub)
+    {
+
+    }
+    void depthImageSubscribeCallback (const image_transport::SingleSubscriberPublisher& pub)
+    {
+
+    }
+    void depthImageUnsubscribeCallback (const image_transport::SingleSubscriberPublisher& pub)
+    {
+
+    }
+    void cloudSubscribeCallback (const ros::SingleSubscriberPublisher& pub)
+    {
+
+    }
+    void cloudUnsubscribeCallback (const ros::SingleSubscriberPublisher& pub)
+    {
+
     }
 };
 

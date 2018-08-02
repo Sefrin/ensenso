@@ -30,7 +30,6 @@ struct PCLGenImage : PCLImage
  */
 class PCL_EXPORTS EnsensoGrabber : public Grabber
 {
-    typedef std::pair<pcl::PCLGenImage<pcl::uint8_t>, pcl::PCLGenImage<pcl::uint8_t> > PairOfImages;
 
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -47,19 +46,11 @@ public:
     (sig_cb_ensenso_point_cloud_rgb)(const pcl::PointCloud<pcl::PointXYZRGBA>::Ptr &);
 
     typedef void
-    (sig_cb_ensenso_images)(const boost::shared_ptr<PairOfImages> &,const boost::shared_ptr<PairOfImages> &);
+    (sig_cb_ensenso_image)(const boost::shared_ptr<pcl::PCLGenImage<pcl::uint8_t> >);
 
     typedef void
-    (sig_cb_ensenso_point_cloud_images)(const pcl::PointCloud<pcl::PointXYZ>::Ptr &,
-                                        const boost::shared_ptr<PairOfImages> &,const boost::shared_ptr<PairOfImages> &,
-                                        const boost::shared_ptr<pcl::PCLGenImage<float> > &);
-    typedef void
-    (sig_cb_ensenso_images_rgb)(const boost::shared_ptr<PairOfImages> &,const boost::shared_ptr<PairOfImages> &,
-                                const boost::shared_ptr<PairOfImages> &);
-    typedef void
-    (sig_cb_ensenso_point_cloud_images_rgb)(const pcl::PointCloud<pcl::PointXYZRGBA>::Ptr &,
-                                            const boost::shared_ptr<PairOfImages> &,const boost::shared_ptr<PairOfImages> &,
-                                            const boost::shared_ptr<PairOfImages> &, const boost::shared_ptr<pcl::PCLGenImage<float> > &);
+    (sig_cb_ensenso_image_depth)(const boost::shared_ptr<pcl::PCLGenImage<float> >);
+
     /** @endcond */
     
     /** @brief Constructor */
@@ -533,19 +524,28 @@ protected:
     /** @brief Boost point cloud signal with RGB */
     boost::signals2::signal<sig_cb_ensenso_point_cloud_rgb>* point_cloud_rgb_signal_;
 
-    /** @brief Boost images signal */
-    boost::signals2::signal<sig_cb_ensenso_images>* images_signal_;
+    /** @brief Boost left raw image signal */
+    boost::signals2::signal<sig_cb_ensenso_image>* image_left_raw_signal_;
 
-    /** @brief Boost images + point cloud signal */
-    boost::signals2::signal<sig_cb_ensenso_point_cloud_images>* point_cloud_images_signal_;
+        /** @brief Boost right raw image signal */
+    boost::signals2::signal<sig_cb_ensenso_image>* image_right_raw_signal_;
 
-    /** @brief Boost images signal with RGB */
-    boost::signals2::signal<sig_cb_ensenso_images_rgb>* images_signal_rgb_;
+        /** @brief Boost left rect image signal */
+    boost::signals2::signal<sig_cb_ensenso_image>* image_left_rect_signal_;
 
-    /** @brief Boost images + point cloud signal with RGB */
-    boost::signals2::signal<sig_cb_ensenso_point_cloud_images_rgb>* point_cloud_images_signal_rgb_;
+        /** @brief Boost right rect image signal */
+    boost::signals2::signal<sig_cb_ensenso_image>* image_right_rect_signal_;
 
-    /** @brief Reference to the camera tree */
+    /** @brief Boost rgb image signal */
+    boost::signals2::signal<sig_cb_ensenso_image>* image_rgb_raw_signal_;
+
+    /** @brief Boost rgb rect image signal */
+    boost::signals2::signal<sig_cb_ensenso_image>* image_rgb_rect_signal_;
+
+    /** @brief Boost depth image signal */
+    boost::signals2::signal<sig_cb_ensenso_image_depth>* image_depth_rect_signal_;
+
+    /** @brief References to the camera tree */
     NxLibItem camera_;
 
     NxLibItem monocam_;

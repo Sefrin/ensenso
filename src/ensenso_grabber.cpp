@@ -703,15 +703,19 @@ void pcl::EnsensoGrabber::processGrabbing ()
     try
     {
       // Publish cloud / images
-      if (num_slots<sig_cb_ensenso_point_cloud> () > 0 || num_slots<sig_cb_ensenso_images> () > 0 || num_slots<sig_cb_ensenso_point_cloud_images> () > 0 || num_slots<sig_cb_ensenso_point_cloud_images_rgb> () > 0 || num_slots<sig_cb_ensenso_images_rgb> () > 0)
+
+      if (num_slots<sig_cb_ensenso_point_cloud> () > 0 || num_slots<sig_cb_ensenso_point_cloud_rgb> () > 0 || num_slots<sig_cb_ensenso_image> () > 0 || num_slots<sig_cb_ensenso_image_depth> () > 0)
       {
         pcl::PointCloud<pcl::PointXYZRGBA>::Ptr rgb_cloud (new pcl::PointCloud<pcl::PointXYZRGBA>);
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
 
-        boost::shared_ptr<PairOfImages> rawimages (new PairOfImages);
-        boost::shared_ptr<PairOfImages> rectifiedimages (new PairOfImages);
-        boost::shared_ptr<PairOfImages> rgbimages (new PairOfImages);
-        boost::shared_ptr<pcl::PCLGenImage<float> > depthimage (new pcl::PCLGenImage<float>);
+        boost::shared_ptr<pcl::PCLGenImage<pcl::uint8_t> > image_left_raw (new pcl::PCLGenImage<pcl::uint8_t>);
+        boost::shared_ptr<pcl::PCLGenImage<pcl::uint8_t> > image_right_raw (new pcl::PCLGenImage<pcl::uint8_t>);
+        boost::shared_ptr<pcl::PCLGenImage<pcl::uint8_t> > image_left_rect (new pcl::PCLGenImage<pcl::uint8_t>);
+        boost::shared_ptr<pcl::PCLGenImage<pcl::uint8_t> > image_right_rect (new pcl::PCLGenImage<pcl::uint8_t>);
+        boost::shared_ptr<pcl::PCLGenImage<pcl::uint8_t> > image_rgb_raw (new pcl::PCLGenImage<pcl::uint8_t>);
+        boost::shared_ptr<pcl::PCLGenImage<pcl::uint8_t> > image_rgb_rect (new pcl::PCLGenImage<pcl::uint8_t>);
+        boost::shared_ptr<pcl::PCLGenImage<float> >        depth_image (new pcl::PCLGenImage<float>);
         // Update FPS
         static double last = pcl::getTime ();
         double now = pcl::getTime ();
@@ -729,7 +733,7 @@ void pcl::EnsensoGrabber::processGrabbing ()
         camera_[itmImages][itmRaw][itmLeft].getBinaryDataInfo (0, 0, 0, 0, 0, &timestamp_);
         bool rectified = false;
         // Gather point cloud
-        if (num_slots<sig_cb_ensenso_point_cloud> () > 0 || num_slots<sig_cb_ensenso_point_cloud_images> () > 0 || num_slots<sig_cb_ensenso_point_cloud_images_rgb> () > 0)
+        if (num_slots<sig_cb_ensenso_point_cloud> () > 0 || num_slots<sig_cb_ensenso_point_cloud_rgb> () > 0 || num_slots<sig_cb_ensenso_image_depth> () > 0)
         {
           // Stereo matching task
           NxLibCommand (cmdComputeDisparityMap).execute ();
@@ -737,21 +741,21 @@ void pcl::EnsensoGrabber::processGrabbing ()
           // Convert disparity map into XYZ data for each pixel
           if (use_rgb_ && mono_device_open_)
           {
-            getDepthDataRGB(rgb_cloud, depthimage);
+            getDepthDataRGB(rgb_cloud, depth_image);
 
           }
           else
           {
-            getDepthData(cloud, depthimage);
+            getDepthData(cloud, depth_image);
           }
         }
         // Gather images
         pattern_mutex_.lock ();
         last_stereo_pattern_ = std::string("");
         pattern_mutex_.unlock ();
-        if (num_slots<sig_cb_ensenso_images> () > 0 || num_slots<sig_cb_ensenso_point_cloud_images> () > 0 || num_slots<sig_cb_ensenso_images_rgb> () > 0 || num_slots<sig_cb_ensenso_point_cloud_images_rgb> () > 0 )
+        if (num_slots<sig_cb_ensenso_image> () > 0)
         {
-          if (!rectified)
+          if (!rectified && (image_rgb_rect_signal_->num_slots() > 0 || image_left_rect_signal_->num_slots() > 0 || image_right_rect_signal_->num_slots() > 0 ))
           {
             NxLibCommand rectify_images (cmdRectifyImages);
             rectify_images.execute ();
@@ -792,55 +796,99 @@ void pcl::EnsensoGrabber::processGrabbing ()
           {
             if (use_rgb_)
             {
-              getImage(monocam_[itmImages][itmWithOverlay], rgbimages->first);
-              getImage(monocam_[itmImages][itmRectified], rgbimages->second);
+              if (image_rgb_raw_signal_->num_slots() > 0)
+              {
+                getImage(monocam_[itmImages][itmWithOverlay], *image_rgb_raw);
+              }
+              if(image_rgb_rect_signal_->num_slots() > 0)
+              {
+                getImage(monocam_[itmImages][itmRectified], *image_rgb_rect);
+              }
             }
             //images with overlay
-            getImage(camera_[itmImages][itmWithOverlay][itmLeft], rawimages->first);
-            getImage(camera_[itmImages][itmWithOverlay][itmRight], rawimages->second);
+            if(image_left_raw_signal_->num_slots() > 0)
+            {
+              getImage(camera_[itmImages][itmWithOverlay][itmLeft], *image_left_raw);
+            }
+            if(image_right_raw_signal_->num_slots() > 0)
+            {
+              getImage(camera_[itmImages][itmWithOverlay][itmRight], *image_right_raw);
+            }
           }
           else
           {
             if (use_rgb_)
             {
               //get RGB raw and rect image
-              getImage(monocam_[itmImages][itmRaw], rgbimages->first);
-              getImage(monocam_[itmImages][itmRectified], rgbimages->second);
+              if (image_rgb_raw_signal_->num_slots() > 0)
+              {
+                getImage(monocam_[itmImages][itmRaw], *image_rgb_raw);
+              }
+              if (image_rgb_rect_signal_->num_slots() > 0)
+              {
+                getImage(monocam_[itmImages][itmRectified], *image_rgb_rect);
+              }
             }
             // get left / right raw images
-            getImage(camera_[itmImages][itmRaw][itmLeft], rawimages->first);
-            getImage(camera_[itmImages][itmRaw][itmRight], rawimages->second);
+            if (image_left_raw_signal_->num_slots() > 0)
+            {
+              getImage(camera_[itmImages][itmRaw][itmLeft], *image_left_raw);
+            }
+            if (image_right_raw_signal_->num_slots() > 0)
+            {
+              getImage(camera_[itmImages][itmRaw][itmRight], *image_right_raw);
+            }
           }
           //get rectified images
-          getImage(camera_[itmImages][itmRectified][itmLeft], rectifiedimages->first);
-          getImage(camera_[itmImages][itmRectified][itmRight], rectifiedimages->second);
+          if (image_left_rect_signal_->num_slots() > 0)
+          {
+            getImage(camera_[itmImages][itmRectified][itmLeft], *image_left_rect);
+          }
+          if (image_right_rect_signal_->num_slots() > 0)
+          {
+            getImage(camera_[itmImages][itmRectified][itmRight], *image_right_rect);
+          }
         }
 
+
         // Publish signals
-        if (num_slots<sig_cb_ensenso_point_cloud_images> () > 0)
-        {
-          point_cloud_images_signal_->operator () (cloud, rawimages, rectifiedimages, depthimage);
-        }
-        else if (num_slots<sig_cb_ensenso_point_cloud> () > 0)
+        if (point_cloud_signal_->num_slots () > 0)
         {
           point_cloud_signal_->operator () (cloud);
         }
-        else if (num_slots<sig_cb_ensenso_images> () > 0)
-        {
-          images_signal_->operator () (rawimages,rectifiedimages);
-        }
-        else if (num_slots<sig_cb_ensenso_point_cloud_rgb> () > 0)
+        if (point_cloud_rgb_signal_->num_slots () > 0)
         {
           point_cloud_rgb_signal_->operator () (rgb_cloud);
         }
-        else if (num_slots<sig_cb_ensenso_point_cloud_images_rgb> () > 0)
+        if (image_left_raw_signal_->num_slots () > 0)
         {
-          point_cloud_images_signal_rgb_->operator () (rgb_cloud, rawimages, rectifiedimages, rgbimages, depthimage);
+          image_left_raw_signal_->operator () (image_left_raw);
         }
-        else if (num_slots<sig_cb_ensenso_images_rgb> () > 0)
+        if (image_right_raw_signal_->num_slots () > 0)
         {
-          images_signal_rgb_->operator () (rawimages,rectifiedimages, rgbimages);
+          image_right_raw_signal_->operator () (image_right_raw);
         }
+        if (image_left_rect_signal_->num_slots () > 0)
+        {
+          image_left_rect_signal_->operator () (image_left_rect);
+        }
+        if (image_right_rect_signal_->num_slots () > 0)
+        {
+          image_right_rect_signal_->operator () (image_right_rect);
+        }
+        if (image_rgb_raw_signal_->num_slots () > 0)
+        {
+          image_rgb_raw_signal_->operator () (image_rgb_raw);
+        }
+        if (image_rgb_rect_signal_->num_slots () > 0)
+        {
+          image_rgb_rect_signal_->operator () (image_rgb_rect);
+        }
+        if (image_depth_rect_signal_->num_slots () > 0)
+        {
+          image_depth_rect_signal_->operator () (depth_image);
+        }
+
       }
       continue_grabbing = running_;
     }
@@ -851,7 +899,7 @@ void pcl::EnsensoGrabber::processGrabbing ()
   }
 }
 
-void pcl::EnsensoGrabber::getDepthDataRGB(const pcl::PointCloud<pcl::PointXYZRGBA>::Ptr& cloud, const pcl::PCLGenImage<float>::Ptr& depthimage)
+void pcl::EnsensoGrabber::getDepthDataRGB(const pcl::PointCloud<pcl::PointXYZRGBA>::Ptr& cloud, const pcl::PCLGenImage<float>::Ptr& depth_image)
 {
   NxLibCommand renderPM (cmdRenderPointMap);
   renderPM.parameters()[itmCamera].set(monocam_[itmSerialNumber].asString());
@@ -866,37 +914,51 @@ void pcl::EnsensoGrabber::getDepthDataRGB(const pcl::PointCloud<pcl::PointXYZRGB
   (*root_)[itmImages][itmRenderPointMap].getBinaryData (point_map, 0);
   (*root_)[itmImages][itmRenderPointMapTexture].getBinaryDataInfo (&width, &height, 0, 0, 0, 0);
   (*root_)[itmImages][itmRenderPointMapTexture].getBinaryData (rgb_data, 0);
-
+  bool get_cloud = (point_cloud_rgb_signal_->num_slots() > 0);
+  bool get_depth = (image_depth_rect_signal_->num_slots() > 0);
   // Copy point f and convert in meters
-  cloud->header.stamp = getPCLStamp (timestamp_);
-  cloud->points.resize (height * width);
-  cloud->width = width;
-  cloud->height = height;
-  cloud->is_dense = false;
-  //copy depth info to image
-  depthimage->header.stamp = getPCLStamp (timestamp_);
-  depthimage->width = width;
-  depthimage->height = height;
-  depthimage->data.resize (width * height);
-  depthimage->encoding = "CV_32FC1";
-
+  if (get_cloud)
+  {
+    cloud->header.stamp = getPCLStamp (timestamp_);
+    cloud->points.resize (height * width);
+    cloud->width = width;
+    cloud->height = height;
+    cloud->is_dense = false;
+  }//copy depth info to image
+  if (get_depth)
+  {
+    depth_image->header.stamp = getPCLStamp (timestamp_);
+    depth_image->width = width;
+    depth_image->height = height;
+    depth_image->data.resize (width * height);
+    depth_image->encoding = "CV_32FC1";
+  }
   for (size_t i = 0; i < point_map.size (); i += 3)
   {
-    depthimage->data[i / 3] = point_map[i + 2] / 1000.0;
-    cloud->points[i / 3].x = (point_map[i] + translation_to_rgb_.x) / 1000.0;
-    cloud->points[i / 3].y = (point_map[i + 1] + translation_to_rgb_.y) / 1000.0;
-    cloud->points[i / 3].z = point_map[i + 2] / 1000.0;
+    if (get_depth)
+    {
+      depth_image->data[i / 3] = point_map[i + 2] / 1000.0;
+    }
+    if (get_cloud)
+    {
+      cloud->points[i / 3].x = (point_map[i] + translation_to_rgb_.x) / 1000.0;
+      cloud->points[i / 3].y = (point_map[i + 1] + translation_to_rgb_.y) / 1000.0;
+      cloud->points[i / 3].z = point_map[i + 2] / 1000.0;
+    }
   }
-  for (size_t i = 0; i < rgb_data.size (); i += 4)
+  if (cloud)
   {
-    cloud->points[i / 4].r = rgb_data[i];
-    cloud->points[i / 4].g = rgb_data[i + 1];
-    cloud->points[i / 4].b = rgb_data[i + 2];
-    cloud->points[i / 4].a = rgb_data[i + 3];
+    for (size_t i = 0; i < rgb_data.size (); i += 4)
+    {
+      cloud->points[i / 4].r = rgb_data[i];
+      cloud->points[i / 4].g = rgb_data[i + 1];
+      cloud->points[i / 4].b = rgb_data[i + 2];
+      cloud->points[i / 4].a = rgb_data[i + 3];
+    }
   }
 }
 
-void pcl::EnsensoGrabber::getDepthData(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud, const pcl::PCLGenImage<float>::Ptr& depthimage)
+void pcl::EnsensoGrabber::getDepthData(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud, const pcl::PCLGenImage<float>::Ptr& depth_image)
 {
   NxLibCommand (cmdComputePointMap).execute ();
   int width, height;
@@ -904,25 +966,38 @@ void pcl::EnsensoGrabber::getDepthData(const pcl::PointCloud<pcl::PointXYZ>::Ptr
   camera_[itmImages][itmPointMap].getBinaryDataInfo (&width, &height, 0, 0, 0, 0);
   camera_[itmImages][itmPointMap].getBinaryData (point_map, 0);
 
+  bool get_cloud = (point_cloud_signal_->num_slots() > 0);
+  bool get_depth = (image_depth_rect_signal_->num_slots() > 0);
     // Copy point f and convert in meters
-  cloud->header.stamp = getPCLStamp (timestamp_);
-  cloud->points.resize (height * width);
-  cloud->width = width;
-  cloud->height = height;
-  cloud->is_dense = false;
+  if (get_cloud)
+  {
+    cloud->header.stamp = getPCLStamp (timestamp_);
+    cloud->points.resize (height * width);
+    cloud->width = width;
+    cloud->height = height;
+    cloud->is_dense = false;
+  }
   //copy depth info to image
-  depthimage->header.stamp = getPCLStamp (timestamp_);
-  depthimage->width = width;
-  depthimage->height = height;
-  depthimage->data.resize (width * height);
-  depthimage->encoding = "CV_32FC1";
-
+  if (get_depth)
+  {
+    depth_image->header.stamp = getPCLStamp (timestamp_);
+    depth_image->width = width;
+    depth_image->height = height;
+    depth_image->data.resize (width * height);
+    depth_image->encoding = "CV_32FC1";
+  }
   for (size_t i = 0; i < point_map.size (); i += 3)
   {
-    depthimage->data[i / 3] = point_map[i + 2] / 1000.0;
-    cloud->points[i / 3].x = point_map[i] / 1000.0;
-    cloud->points[i / 3].y = point_map[i + 1] / 1000.0;
-    cloud->points[i / 3].z = point_map[i + 2] / 1000.0;
+    if (get_depth)
+    {
+      depth_image->data[i / 3] = point_map[i + 2] / 1000.0;
+    }
+    if (get_cloud)
+    {
+      cloud->points[i / 3].x = point_map[i] / 1000.0;
+      cloud->points[i / 3].y = point_map[i + 1] / 1000.0;
+      cloud->points[i / 3].z = point_map[i + 2] / 1000.0;
+    }
   }
 }
 
