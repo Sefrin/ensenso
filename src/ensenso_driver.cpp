@@ -533,27 +533,22 @@ class EnsensoDriver
 
     void publishTF()
     {
-      Eigen::Affine3d mat;
-      if (!ensenso_ptr_->getTFLeftToRGB(mat))
+      pcl::Transform ensenso_tf;
+      if (!ensenso_ptr_->getTFLeftToRGB(ensenso_tf))
       {
         return;
       }
-      Eigen::Quaterniond q(mat.rotation()); //from stereo to rgb
-      q.normalize();
-
       geometry_msgs::TransformStamped tf;
       tf.header.frame_id = camera_frame_id_;
       tf.header.stamp = ros::Time::now();
       tf.child_frame_id = rgb_camera_frame_id_;
-
-      tf.transform.rotation.x = q.x();
-      tf.transform.rotation.y = q.y();
-      tf.transform.rotation.z = q.z();
-      tf.transform.rotation.w = q.w();
-      tf.transform.translation.x = mat.translation().x() / 1000.0;
-      tf.transform.translation.y = mat.translation().y() / 1000.0;
-      tf.transform.translation.z = mat.translation().z() / 1000.0;
-
+      tf.transform.rotation.x = ensenso_tf.qx;
+      tf.transform.rotation.y = ensenso_tf.qy;
+      tf.transform.rotation.z = ensenso_tf.qz;
+      tf.transform.rotation.w = ensenso_tf.qw;
+      tf.transform.translation.x = ensenso_tf.tx;
+      tf.transform.translation.y = ensenso_tf.ty;
+      tf.transform.translation.z = ensenso_tf.tz;
       tf_br_.sendTransform(tf);
     }
 
@@ -638,6 +633,7 @@ class EnsensoDriver
 
       if (need_images && !is_streaming_images_)
       {
+        ensenso_ptr_->stop();
         if (rgb_available_ && (rgb_raw_pub_.getNumSubscribers() + rgb_rectified_pub_.getNumSubscribers()) > 0)
         {
           boost::function<void(
@@ -653,6 +649,7 @@ class EnsensoDriver
               const boost::shared_ptr<PairOfImages>&)> f = boost::bind (&EnsensoDriver::imagesCallback, this, _1, _2);
             image_connection_ = ensenso_ptr_->registerCallback(f);
         }
+        ensenso_ptr_->start();
         is_streaming_images_ = true;
       }
       else if (!need_images && is_streaming_images_)
@@ -667,6 +664,7 @@ class EnsensoDriver
     {
       if ((cloud_pub_.getNumSubscribers() > 0) && !is_streaming_cloud_)
       {
+        ensenso_ptr_->stop();
         if(rgb_available_)
         {
           boost::function<void(
@@ -679,6 +677,7 @@ class EnsensoDriver
             const boost::shared_ptr<PointCloudXYZ>&)> f = boost::bind (&EnsensoDriver::cloudCallback, this, _1);
           cloud_connection_ = ensenso_ptr_->registerCallback(f);
         }
+        ensenso_ptr_->start();
         is_streaming_cloud_ = true;
       }
       else if ((cloud_pub_.getNumSubscribers() == 0) && is_streaming_cloud_)
@@ -694,7 +693,9 @@ class EnsensoDriver
       {
         boost::function<void(
           const boost::shared_ptr<pcl::PCLGenImage<float> >&)> f = boost::bind (&EnsensoDriver::depthCallback, this, _1);
-            depth_connection_ = ensenso_ptr_->registerCallback(f);
+        ensenso_ptr_->stop();
+        depth_connection_ = ensenso_ptr_->registerCallback(f);
+        ensenso_ptr_->start();
         is_streaming_depth_ = true;
       }
       else if ((depth_pub_.getNumSubscribers() == 0) && is_streaming_depth_)

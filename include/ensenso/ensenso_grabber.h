@@ -25,6 +25,11 @@ struct PCLGenImage : PCLImage
     typedef boost::shared_ptr< ::pcl::PCLGenImage<T> > Ptr;
     typedef boost::shared_ptr< ::pcl::PCLGenImage<T>  const> ConstPtr;
 };
+
+struct Transform
+{
+    double tx, ty, tz, qx, qy, qz, qw;
+};
 /**
  * @brief Grabber for IDS-Imaging Ensenso's devices
  * @author Francisco Suarez-Ruiz
@@ -148,7 +153,7 @@ public:
 
      * @return True if successful, false otherwise
      */
-    bool getTFLeftToRGB(Eigen::Affine3d& mat) const;
+    bool getTFLeftToRGB(Transform& tf) const;
     
     /** @brief Get the raw stereo pattern information and the pattern pose. Before using it enable the
      * storeCalibrationPattern.
@@ -586,7 +591,7 @@ protected:
     double timestamp_;
 
     /** @brief translation from left camera to RGB frame */
-    Eigen::Affine3d tf_left_to_rgb_;
+    Transform tf_left_to_rgb_;
 
     /** @brief Mutual exclusion for FPS computation */
     mutable boost::mutex fps_mutex_;

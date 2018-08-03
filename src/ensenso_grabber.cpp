@@ -365,11 +365,11 @@ bool pcl::EnsensoGrabber::getCameraInfo(std::string cam, sensor_msgs::CameraInfo
   }
 }
 
-bool pcl::EnsensoGrabber::getTFLeftToRGB(Eigen::Affine3d& mat) const
+bool pcl::EnsensoGrabber::getTFLeftToRGB(Transform& tf) const
 {
   if (isRunning())
   {
-    mat = tf_left_to_rgb_;
+    tf = tf_left_to_rgb_;
     return (true);
   }
   else
@@ -640,22 +640,6 @@ bool pcl::EnsensoGrabber::openTcpPort (const int port)
 void pcl::EnsensoGrabber::processGrabbing ()
 {
   bool continue_grabbing = running_;
-  //get Translation between left camera and RGB frame
-  if (use_rgb_)
-  {
-    NxLibCommand convert(cmdConvertTransformation);
-    convert.parameters()[itmTransformation].setJson(monocam_[itmLink].asJson());
-    convert.execute();
-    Eigen::Affine3d transform;
-    for (int i = 0; i < 4 ; ++i)
-    {
-      for (int j = 0; j < 4 ; ++j)
-      {
-        transform(j,i) = convert.result()[itmTransformation][i][j].asDouble();
-      }
-    }
-    tf_left_to_rgb_ = transform.inverse();
-  }
   while (continue_grabbing)
   {
     try
@@ -667,7 +651,7 @@ void pcl::EnsensoGrabber::processGrabbing ()
       bool need_images_rgb = num_slots<sig_cb_ensenso_images_rgb> () > 0;
       bool need_depth = num_slots<sig_cb_ensenso_image_depth> () > 0;
 
-      if (need_cloud || need_cloud_rgb ||need_images || need_images_rgb || need_depth)
+      if (need_cloud || need_cloud_rgb || need_images || need_images_rgb || need_depth)
       {
         pcl::PointCloud<pcl::PointXYZRGBA>::Ptr rgb_cloud (new pcl::PointCloud<pcl::PointXYZRGBA>);
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
@@ -862,8 +846,8 @@ void pcl::EnsensoGrabber::getDepthDataRGB(const pcl::PointCloud<pcl::PointXYZRGB
     }
     if (get_cloud)
     {
-      cloud->points[i / 3].x = (point_map[i] + tf_left_to_rgb_.translation().x()) / 1000.0;
-      cloud->points[i / 3].y = (point_map[i + 1] + tf_left_to_rgb_.translation().y()) / 1000.0;
+      cloud->points[i / 3].x = point_map[i] / 1000.0 - tf_left_to_rgb_.tx;
+      cloud->points[i / 3].y = point_map[i + 1] / 1000.0 - tf_left_to_rgb_.ty;
       cloud->points[i / 3].z = point_map[i + 2] / 1000.0;
     }
   }
@@ -1404,6 +1388,35 @@ if (!device_open_)
 bool pcl::EnsensoGrabber::setUseRGB (const bool enable)
 {
   use_rgb_ = enable;
+  //get Translation between left camera and RGB frame
+  try {
+    NxLibCommand convert(cmdConvertTransformation);
+    convert.parameters()[itmTransformation].setJson(monocam_[itmLink].asJson());
+    convert.execute();
+    Eigen::Affine3d transform;
+    for (int i = 0; i < 4 ; ++i)
+    {
+      for (int j = 0; j < 4 ; ++j)
+      {
+        transform(j,i) = convert.result()[itmTransformation][i][j].asDouble();
+      }
+    }
+    Eigen::Affine3d inv_transform = transform.inverse();
+    Eigen::Quaterniond q(inv_transform.rotation()); //from stereo to rgb
+    q.normalize();
+    tf_left_to_rgb_.qx = q.x();
+    tf_left_to_rgb_.qy = q.y();
+    tf_left_to_rgb_.qz = q.z();
+    tf_left_to_rgb_.qw = q.w();
+    tf_left_to_rgb_.tx = inv_transform.translation().x() / 1000.0;
+    tf_left_to_rgb_.ty = inv_transform.translation().y() / 1000.0;
+    tf_left_to_rgb_.tz = inv_transform.translation().z() / 1000.0;
+  }
+  catch (NxLibException &ex)
+  {
+    ensensoExceptionHandling (ex, "setUseRGB");
+    return (false);
+  }
   return (true);
 }
 
